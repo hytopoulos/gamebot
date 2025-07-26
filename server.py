@@ -5,14 +5,18 @@ This server implements the Model Context Protocol (MCP) with search and fetch
 capabilities designed to work with ChatGPT's chat and deep research features.
 """
 
+import json
 import logging
 import os
+from datetime import datetime
 from typing import Dict, List, Any
+from pathlib import Path
+from dotenv import load_dotenv
 
 from fastmcp import FastMCP
 from openai import AsyncOpenAI
 from fastapi import HTTPException, Request
-from fastapi.middleware import BaseHTTPMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 from aiohttp import ClientTimeout
 
@@ -20,6 +24,10 @@ from aiohttp import ClientTimeout
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Load environment variables from .env file
+env_path = Path('.') / '.env'
+load_dotenv(dotenv_path=env_path, override=True)
 
 # OpenAI configuration
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -53,24 +61,31 @@ def create_server(openai_client):
 
     # Add security headers middleware
     mcp.add_middleware(SecurityHeadersMiddleware)
-
-    # Process ALLOWED_ORIGINS for CORS
-    allowed_origins = os.environ.get("ALLOWED_ORIGINS", "")
-    origins_list = []
-    if allowed_origins:
-        if allowed_origins == "*":
-            origins_list = ["*"]
-        else:
-            origins_list = [origin.strip() for origin in allowed_origins.split(",") if origin.strip()]
-
-    # Add CORS middleware
-    mcp.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins_list,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    
+    # Health check endpoint as a FastMCP tool
+    @mcp.tool()
+    async def health_check() -> dict:
+        """
+        Health check endpoint that returns the server status.
+        
+        Returns:
+            dict: A dictionary containing the server status and metadata.
+        """
+        # Create a plain dictionary that will be easy to JSON serialize
+        result = {
+            "status": "ok",
+            "timestamp": datetime.utcnow().isoformat(),
+            "service": "gamebot",
+            "version": "1.0.0"
+        }
+        
+        # Convert to a JSON string and back to ensure it's serializable
+        # This will raise an exception immediately if there are any serialization issues
+        import json
+        json.dumps(result)
+        
+        # Return the result as a plain dictionary
+        return result
 
     @mcp.tool()
     async def search(query: str) -> Dict[str, List[Dict[str, Any]]]:
@@ -213,42 +228,170 @@ def create_server(openai_client):
         logger.info(f"Fetched vector store file: {id}")
         return result
 
-    @mcp.get("/health")
-    async def health_check():
-        return {
-            "status": "healthy",
-            "vector_store": VECTOR_STORE_ID is not None
-        }
-
     return mcp
 
 
-def main():
-    """Main function to start the MCP server."""
-    # Create OpenAI client after verification
+def create_openai_client():
+    """Create and return an OpenAI client with the configured API key."""
     if not OPENAI_API_KEY:
         logger.error(
             "OpenAI API key not found. Please set OPENAI_API_KEY environment variable."
         )
         raise ValueError("OpenAI API key is required")
     
-    openai_client = AsyncOpenAI(
+    return AsyncOpenAI(
         api_key=OPENAI_API_KEY,
         timeout=ClientTimeout(total=30.0)
     )
 
-    # Verify Vector Store ID is set
-    if not VECTOR_STORE_ID:
-        logger.error(
-            "Vector Store ID not found. Please set VECTOR_STORE_ID environment variable."
-        )
-        raise ValueError("Vector Store ID is required")
+# Verify Vector Store ID is set
+if not VECTOR_STORE_ID:
+    logger.error(
+        "Vector Store ID not found. Please set VECTOR_STORE_ID environment variable."
+    )
+    raise ValueError("Vector Store ID is required")
 
-    logger.info(f"Using vector store: {VECTOR_STORE_ID}")
+logger.info(f"Using vector store: {VECTOR_STORE_ID}")
 
-    # Create the MCP server with the openai_client
-    server = create_server(openai_client)
+# Create the FastMCP server
+mcp_server = create_server(create_openai_client())
 
+# Create an ASGI application wrapper for FastMCP
+class FastMCPASGIWrapper:
+    def __init__(self, mcp_server):
+        self.mcp_server = mcp_server
+        
+    async def __call__(self, scope, receive, send):
+        if scope['type'] == 'http':
+            await self.handle_http(scope, receive, send)
+        else:
+            raise NotImplementedError(f"Unsupported scope type: {scope['type']}")
+    
+    async def handle_http(self, scope, receive, send):
+        if scope['method'] == 'POST' and scope['path'] == '/health_check':
+            # Get the request body
+            body = b''
+            more_body = True
+            while more_body:
+                message = await receive()
+                body += message.get('body', b'')
+                more_body = message.get('more_body', False)
+            
+            # Try to find and call the health check tool
+            tool_found = False
+            response = {"error": "Health check tool not found"}
+            status_code = 404
+            
+            try:
+                # Get the tool manager from the FastMCP instance
+                tool_manager = self.mcp_server._tool_manager
+                
+                # Look for the health check tool by name
+                tool_name = 'health_check'
+                
+                # Get all tools from the tool manager (returns a dict of tool_name -> tool)
+                tools = await tool_manager.get_tools()
+                
+                # Find the health check tool by name
+                health_check_tool = tools.get(tool_name)
+                
+                if health_check_tool:
+                    try:
+                        # Call the tool function with the correct signature
+                        tool_result = await tool_manager.call_tool(
+                            tool_name,
+                            {}  # Empty arguments dict for health check
+                        )
+                        
+                        # Handle different types of tool results
+                        if tool_result is not None:
+                            # If the tool returns a TextContent object, use its content
+                            if hasattr(tool_result, 'content'):
+                                response = tool_result.content
+                                # If content is a list, take the first item if it exists
+                                if isinstance(response, list) and len(response) > 0:
+                                    response = response[0]
+                                # If content has a text attribute, use that
+                                if hasattr(response, 'text'):
+                                    response = response.text
+                            else:
+                                # Otherwise, use the result directly
+                                response = tool_result
+                        
+                        # Ensure we have a valid response
+                        if response is None:
+                            response = {"status": "error", "message": "No response from tool"}
+                            status_code = 500
+                        # If response is a string, wrap it in a dict
+                        elif isinstance(response, str):
+                            try:
+                                # Try to parse as JSON first
+                                response = json.loads(response)
+                            except json.JSONDecodeError:
+                                # If not JSON, wrap in a message field
+                                response = {"status": "ok", "message": response}
+                        # If response is a list, wrap it in a result field
+                        elif isinstance(response, list):
+                            response = {"status": "ok", "result": response}
+                        # If response is already a dict, ensure it has a status field
+                        elif isinstance(response, dict):
+                            if "status" not in response:
+                                response["status"] = "ok"
+                        # For any other type, convert to string
+                        else:
+                            response = {"status": "ok", "result": str(response)}
+                        
+                        # Add a timestamp if not already present
+                        if isinstance(response, dict) and "timestamp" not in response:
+                            response["timestamp"] = datetime.utcnow().isoformat()
+                        
+                        status_code = 200
+                        tool_found = True
+                        
+                    except Exception as e:
+                        logger.error(f"Error in health check tool: {str(e)}", exc_info=True)
+                        response = {
+                            "status": "error",
+                            "error": f"Error executing health check: {str(e)}",
+                            "timestamp": datetime.utcnow().isoformat()
+                        }
+                        status_code = 500
+                        tool_found = True
+            except Exception as e:
+                response = {"error": f"Error calling health check: {str(e)}"}
+                status_code = 500
+                tool_found = True
+            
+            # Send the response
+            await send({
+                'type': 'http.response.start',
+                'status': status_code,
+                'headers': [
+                    [b'content-type', b'application/json'],
+                ],
+            })
+            await send({
+                'type': 'http.response.body',
+                'body': json.dumps(response).encode('utf-8'),
+            })
+        else:
+            await send({
+                'type': 'http.response.start',
+                'status': 404,
+                'headers': [
+                    [b'content-type', b'text/plain'],
+                ],
+            })
+            await send({
+                'type': 'http.response.body',
+                'body': b'Not Found',
+            })
+
+# Create the ASGI application
+app = FastMCPASGIWrapper(mcp_server)
+
+def main():
+    """Main function to start the MCP server."""
     # Get host and port from environment variables
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8000"))
@@ -256,14 +399,13 @@ def main():
     logger.info(f"Starting MCP server on {host}:{port}")
     logger.info("Server will be accessible via SSE transport")
 
-    try:
-        # Use FastMCP's built-in run method with SSE transport
-        server.run(transport="sse", host=host, port=port)
-    except KeyboardInterrupt:
-        logger.info("Server stopped by user")
-    except Exception as e:
-        logger.error(f"Server error: {e}")
-        raise
+    # Run the FastMCP server
+    uvicorn.run(
+        "server:app",
+        host=host,
+        port=port,
+        reload=True,
+    )
 
 
 if __name__ == "__main__":
