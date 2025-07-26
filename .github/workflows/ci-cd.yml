@@ -1,0 +1,142 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # Allow manual triggers
+
+env:
+  IMAGE_NAME: gamebot
+  HEROKU_APP_NAME: ${{ vars.HEROKU_APP_NAME || 'gamebot-1753568107' }}
+  HEROKU_EMAIL: ${{ vars.HEROKU_EMAIL }}
+  HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+  DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+  DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  VECTOR_STORE_ID: ${{ secrets.VECTOR_STORE_ID }}
+
+defaults:
+  run:
+    working-directory: ./
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+    
+    - name: Run tests
+      run: |
+        pytest --cov=./ --cov-report=xml
+    
+    - name: Upload coverage to Codecov
+      if: github.event_name == 'push'
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: ./coverage.xml
+        fail_ci_if_error: false
+
+  build-and-push:
+    needs: test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ env.DOCKERHUB_USERNAME }}
+        password: ${{ env.DOCKERHUB_TOKEN }}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:latest
+          ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy-heroku:
+    needs: [test, build-and-push]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Heroku CLI
+      run: |
+        curl https://cli-assets.heroku.com/install.sh | sh
+    
+    - name: Login to Heroku Container Registry
+      run: |
+        echo "${{ secrets.HEROKU_API_KEY }}" | docker login --username="${{ vars.HEROKU_EMAIL }}" --password-stdin registry.heroku.com
+    
+    - name: Build and push to Heroku
+      env:
+        HEROKU_APP_NAME: ${{ env.HEROKU_APP_NAME }}
+      run: |
+        # Build the image
+        docker build -t registry.heroku.com/$HEROKU_APP_NAME/web .
+        
+        # Push to Heroku Container Registry
+        docker push registry.heroku.com/$HEROKU_APP_NAME/web
+        
+        # Release the container
+        heroku container:release web -a $HEROKU_APP_NAME
+    
+    - name: Set Heroku config vars
+      run: |
+        heroku config:set \
+          OPENAI_API_KEY="${{ env.OPENAI_API_KEY }}" \
+          VECTOR_STORE_ID="${{ env.VECTOR_STORE_ID }}" \
+          HOST="0.0.0.0" \
+          PORT="${{ env.PORT || '8000' }}" \
+          ALLOWED_ORIGINS="*" \
+          -a ${{ env.HEROKU_APP_NAME }}
+
+  notify:
+    needs: [test, build-and-push, deploy-heroku]
+    if: always()
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Send notification
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: rtCamp/action-slack-notify@v2
+      env:
+        SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+        SLACK_TITLE: 'Deployment Status: ${{ job.status }}'
+        SLACK_MESSAGE: 'Deployment of ${{ github.repository }}@${{ github.sha }} to ${{ env.HEROKU_APP_NAME }} completed.'
+        SLACK_COLOR: ${{ job.status == 'success' && 'good' || 'danger' }}
