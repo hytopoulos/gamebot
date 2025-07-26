@@ -1,0 +1,28 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - VECTOR_STORE_ID=${VECTOR_STORE_ID}
+      - HOST=0.0.0.0
+      - PORT=8000
+      - ALLOWED_ORIGINS=*
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    
+  # Uncomment and configure if you need Redis for caching
+  # redis:
+  #   image: redis:alpine
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   restart: unless-stopped
+
+# volumes:
+#   redis_data:
