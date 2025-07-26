@@ -1,0 +1,7 @@
+fastapi>=0.115.12
+uvicorn==0.27.0
+python-dotenv>=1.0.1
+openai>=1.13.0
+aiohttp==3.9.3
+httpx>=0.28.1  # Updated to satisfy fastmcp requirements
+fastmcp
