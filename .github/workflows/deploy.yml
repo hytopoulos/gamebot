@@ -39,7 +39,7 @@ jobs:
     
     - name: Run tests
       env:
-        HEROKU_APP_NAME: gamebot-1753568107
+        HEROKU_APP_NAME: ${{ secrets.HEROKU_APP_NAME }}
         HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         VECTOR_STORE_ID: ${{ secrets.VECTOR_STORE_ID }}
