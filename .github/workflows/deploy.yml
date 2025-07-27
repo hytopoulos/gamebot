@@ -65,12 +65,10 @@ jobs:
         curl https://cli-assets.heroku.com/install-ubuntu.sh | sh
         heroku --version
     
-    - name: Login to Heroku Container Registry
-      env:
-        HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
+    - name: Login to Heroku
       run: |
-        echo "Logging into Heroku Container Registry..."
-        echo $HEROKU_API_KEY | docker login --username=_ --password-stdin registry.heroku.com
+        echo "Logging into Heroku..."
+        heroku container:login
     
     - name: Deploy to Heroku
       env:
@@ -87,10 +85,8 @@ jobs:
         # Add Heroku remote
         git remote add heroku https://heroku:$HEROKU_API_KEY@git.heroku.com/${{ secrets.HEROKU_APP_NAME }}.git || true
         
-        # Deploy using container registry (recommended for Python apps)
-        echo "Building and pushing container..."
-        docker build -t registry.heroku.com/${{ secrets.HEROKU_APP_NAME }}/web .
-        docker push registry.heroku.com/${{ secrets.HEROKU_APP_NAME }}/web
+        # Deploy using Heroku buildpacks (simpler approach)
+        git push https://heroku:$HEROKU_API_KEY@git.heroku.com/${{ secrets.HEROKU_APP_NAME }}.git HEAD:main
         
         # Verify deployment
         heroku ps:scale web=1 --app ${{ secrets.HEROKU_APP_NAME }}
