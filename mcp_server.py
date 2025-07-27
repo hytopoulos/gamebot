@@ -83,11 +83,12 @@ def create_mcp_server():
     # Create and register search tool
     search_tool = Tool(
         name="search",
-        description="Search for information in the knowledge base",
+        description="Search for documents in the vector store",
         inputSchema={
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "The search query"}
+                "query": {"type": "string", "description": "The search query"},
+                "limit": {"type": "number", "description": "Maximum number of results to return", "default": 5}
             },
             "required": ["query"]
         },
@@ -105,12 +106,10 @@ def create_mcp_server():
             },
             "required": ["url"]
         },
-        handler=fetch_tool
+        handler=fetch_tool_handler
     )
     
     # Add tools to the server
-    # In the MCP SDK, tools are passed as a list to the Server constructor
-    # So we'll create a list of all tools and pass them to the Server
     tools = [
         search_tool,
         fetch_tool
