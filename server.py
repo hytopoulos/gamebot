@@ -14,6 +14,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union, Set, Tuple
+from dotenv import load_dotenv
 
 import fastapi
 from fastapi import FastAPI, Request, Response, status, HTTPException
