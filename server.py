@@ -326,45 +326,40 @@ class FastMCPASGIWrapper:
                 tool_name = 'health_check'
                 tool_args = {}
             elif path == '/tools' and method == 'GET':
-                # Return the list of available tools
+                # Return the list of available tools in MCP format
                 tools_list = []
                 for tool_name, tool in tools.items():
                     try:
-                        # Try to access the tool's function attribute directly
+                        tool_info = {
+                            'name': tool_name,
+                            'inputSchema': {
+                                'type': 'object',
+                                'properties': {},
+                                'required': []
+                            }
+                        }
+                        
+                        # Handle different tool types and extract information
                         if hasattr(tool, 'function') and hasattr(tool.function, 'name'):
                             # This is a FunctionTool object
                             func = tool.function
-                            tool_info = {
+                            tool_info.update({
                                 'name': getattr(func, 'name', tool_name),
                                 'description': getattr(func, 'description', ''),
-                                'parameters': getattr(func, 'parameters', {})
-                            }
-                        # Handle case where tool is already a dictionary
-                        elif hasattr(tool, 'get'):
-                            tool_info = {
-                                'name': tool_name,
-                                'description': tool.get('description', ''),
-                                'parameters': tool.get('parameters', {})
-                            }
-                        # Handle case where tool has attributes directly
-                        elif hasattr(tool, 'name') or hasattr(tool, 'description'):
-                            tool_info = {
-                                'name': getattr(tool, 'name', tool_name),
-                                'description': getattr(tool, 'description', ''),
-                                'parameters': getattr(tool, 'parameters', {})
-                            }
-                        else:
-                            # Fallback for other types
-                            tool_info = {
-                                'name': tool_name,
-                                'description': str(tool),
-                                'parameters': {}
-                            }
+                                'title': getattr(func, 'name', tool_name).replace('_', ' ').title()
+                            })
+                            
+                            # Convert parameters to inputSchema if available
+                            if hasattr(func, 'parameters'):
+                                params = getattr(func, 'parameters', {})
+                                if isinstance(params, dict):
+                                    tool_info['inputSchema'] = {
+                                        'type': 'object',
+                                        'properties': params.get('properties', {}),
+                                        'required': params.get('required', [])
+                                    }
                         
-                        # Ensure all values are JSON serializable
-                        tool_info = {k: v for k, v in tool_info.items() if v is not None}
-                        if 'parameters' not in tool_info:
-                            tool_info['parameters'] = {}
+                        # Add to tools list with proper MCP structure
                         tools_list.append(tool_info)
                         
                     except Exception as e:
@@ -372,10 +367,21 @@ class FastMCPASGIWrapper:
                         tools_list.append({
                             'name': tool_name,
                             'description': f'Error: {str(e)}',
-                            'parameters': {}
+                            'inputSchema': {
+                                'type': 'object',
+                                'properties': {},
+                                'required': []
+                            }
                         })
                 
-                response = {'tools': tools_list}
+                # Format response according to MCP specification
+                response = {
+                    'jsonrpc': '2.0',
+                    'id': request_data.get('id', 1),
+                    'result': {
+                        'tools': tools_list
+                    }
+                }
                 status_code = 200
                 await self._send_json_response(send, response, status_code)
                 return
