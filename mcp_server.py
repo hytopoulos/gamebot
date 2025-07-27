@@ -84,15 +84,45 @@ async def fetch(url: str) -> str:
 
 def create_mcp_server():
     """Create and configure the MCP server."""
-    # The tools are already registered via the @mcp.tool() decorator
-    # Just return the mcp instance which is our server
-    return mcp
+    # Create an ASGI application that wraps the MCP server
+    async def app(scope, receive, send):
+        if scope["type"] == "http":
+            # Handle HTTP requests
+            if scope["path"] == "/health":
+                await send({
+                    'type': 'http.response.start',
+                    'status': 200,
+                    'headers': [
+                        [b'content-type', b'application/json'],
+                    ]
+                })
+                await send({
+                    'type': 'http.response.body',
+                    'body': b'{"status": "ok"}',
+                })
+            else:
+                # For other paths, return 404
+                await send({
+                    'type': 'http.response.start',
+                    'status': 404,
+                    'headers': [
+                        [b'content-type', b'application/json'],
+                    ]
+                })
+                await send({
+                    'type': 'http.response.body',
+                    'body': b'{"error": "Not found"}',
+                })
+        elif scope["type"] == "websocket":
+            # Handle WebSocket connections (for MCP protocol)
+            websocket = await mcp.WebSocket(scope, receive, send)
+            await websocket.accept()
+            await mcp.handle_websocket(websocket)
+    
+    return app
 
-# Create the server instance
-server = create_mcp_server()
-
-# The FastMCP instance is the ASGI app
-app = server
+# Create the ASGI application
+app = create_mcp_server()
 
 if __name__ == "__main__":
     # Get host and port from environment or use defaults
