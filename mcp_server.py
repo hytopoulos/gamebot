@@ -100,6 +100,110 @@ def create_mcp_server():
                     'type': 'http.response.body',
                     'body': b'{"status": "ok"}',
                 })
+            elif scope["path"] == "/" and scope["method"] == "POST":
+                # Handle MCP protocol JSON-RPC requests
+                try:
+                    # Read the request body
+                    body = b''
+                    more_body = True
+                    while more_body:
+                        message = await receive()
+                        body += message.get('body', b'')
+                        more_body = message.get('more_body', False)
+                    
+                    # Parse the JSON-RPC request
+                    import json
+                    request = json.loads(body.decode('utf-8'))
+                    
+                    # Handle the MCP protocol request
+                    if request.get('method') == 'server.listTools':
+                        # Get the list of registered tools
+                        tools = [
+                            {
+                                'name': 'search',
+                                'description': 'Search the vector store for relevant documents',
+                                'parameters': {
+                                    'type': 'object',
+                                    'properties': {
+                                        'query': {'type': 'string', 'description': 'The search query'},
+                                        'limit': {'type': 'integer', 'description': 'Maximum number of results to return', 'default': 5}
+                                    },
+                                    'required': ['query']
+                                }
+                            },
+                            {
+                                'name': 'fetch',
+                                'description': 'Fetch the content of a URL',
+                                'parameters': {
+                                    'type': 'object',
+                                    'properties': {
+                                        'url': {'type': 'string', 'description': 'The URL to fetch'}
+                                    },
+                                    'required': ['url']
+                                }
+                            }
+                        ]
+                        
+                        # Send the response
+                        response = {
+                            'jsonrpc': '2.0',
+                            'id': request.get('id'),
+                            'result': tools
+                        }
+                        
+                        await send({
+                            'type': 'http.response.start',
+                            'status': 200,
+                            'headers': [
+                                [b'content-type', b'application/json'],
+                            ]
+                        })
+                        await send({
+                            'type': 'http.response.body',
+                            'body': json.dumps(response).encode('utf-8'),
+                        })
+                    else:
+                        # Method not found
+                        response = {
+                            'jsonrpc': '2.0',
+                            'id': request.get('id'),
+                            'error': {
+                                'code': -32601,
+                                'message': 'Method not found'
+                            }
+                        }
+                        await send({
+                            'type': 'http.response.start',
+                            'status': 404,
+                            'headers': [
+                                [b'content-type', b'application/json'],
+                            ]
+                        })
+                        await send({
+                            'type': 'http.response.body',
+                            'body': json.dumps(response).encode('utf-8'),
+                        })
+                except Exception as e:
+                    # Handle any errors
+                    response = {
+                        'jsonrpc': '2.0',
+                        'id': None,
+                        'error': {
+                            'code': -32603,
+                            'message': f'Internal error: {str(e)}'
+                        }
+                    }
+                    await send({
+                        'type': 'http.response.start',
+                        'status': 500,
+                        'headers': [
+                            [b'content-type', b'application/json'],
+                        ]
+                    })
+                    await send({
+                        'type': 'http.response.body',
+                        'body': json.dumps(response).encode('utf-8'),
+                    })
             else:
                 # For other paths, return 404
                 await send({
