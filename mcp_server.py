@@ -20,16 +20,16 @@ load_dotenv(dotenv_path=env_path, override=True)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 VECTOR_STORE_ID = os.getenv("VECTOR_STORE_ID")
 
-async def search_tool(params: Dict[str, Any], context: Context) -> CallToolResult:
+async def search_tool_handler(params: Dict[str, Any], context: Context) -> CallToolResult:
     """
     Search for information using the OpenAI Vector Store.
     
     Args:
-        session: The MCP session
         params: Dictionary containing 'query' key with the search query
+        context: The MCP context
         
     Returns:
-        ToolResult: Search results
+        CallToolResult: Search results
     """
     query = params.get('query', '')
     print(f"Searching for: {query}")
@@ -85,7 +85,7 @@ def create_mcp_server():
             },
             "required": ["query"]
         },
-        handler=search_tool
+        handler=search_tool_handler
     )
     
     fetch_tool = Tool(
