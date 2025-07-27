@@ -86,7 +86,21 @@ jobs:
         
         # Deploy using git push to Heroku
         git remote add heroku https://heroku:$HEROKU_API_KEY@git.heroku.com/${{ secrets.HEROKU_APP_NAME }}.git || true
-        git push -f heroku `git subtree split --prefix=./ HEAD`:refs/heads/main
+        
+        # Create a new branch for deployment to avoid protected branch issues
+        git checkout -b deployment-$(date +%s)
+        
+        # Push the deployment branch and set the upstream
+        git push -f heroku HEAD:refs/heads/deploy-branch
+        
+        # Promote the deployment branch to main on Heroku
+        heroku git:remote -a ${{ secrets.HEROKU_APP_NAME }}
+        heroku maintenance:on
+        heroku ps:scale web=0
+        heroku git:remote -a ${{ secrets.HEROKU_APP_NAME }}
+        git push -f heroku HEAD:main
+        heroku ps:scale web=1
+        heroku maintenance:off
         
         # Verify deployment
         heroku ps:scale web=1 --app ${{ secrets.HEROKU_APP_NAME }}
