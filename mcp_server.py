@@ -93,7 +93,7 @@ def create_mcp_server():
         },
         handler=search_tool_handler
     )
-    server.add_tool(search_tool)
+    server.register_tool(search_tool)
     
     # Create and register fetch tool
     fetch_tool = Tool(
@@ -108,7 +108,7 @@ def create_mcp_server():
         },
         handler=fetch_tool
     )
-    server.add_tool(fetch_tool)
+    server.register_tool(fetch_tool)
     
     return server
 
