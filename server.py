@@ -336,7 +336,6 @@ class FastMCPASGIWrapper:
                     })
                 response = {'tools': tools_list}
                 status_code = 200
-                
                 await self._send_json_response(send, response, status_code)
                 return
             elif path == '/search' and method == 'POST':
