@@ -321,6 +321,19 @@ class FastMCPASGIWrapper:
             if path == '/health' and method == 'GET':
                 tool_name = 'health_check'
                 tool_args = {}
+            elif path == '/tools' and method == 'GET':
+                # Return the list of available tools
+                tools_list = []
+                for tool_name, tool_info in tools.items():
+                    tools_list.append({
+                        'name': tool_name,
+                        'description': tool_info['description'],
+                        'parameters': tool_info.get('parameters', {})
+                    })
+                response = {'tools': tools_list}
+                status_code = 200
+                await self._send_json_response(send, response, status_code)
+                return
             elif path == '/search' and method == 'POST':
                 tool_name = 'search'
                 tool_args = request_data
