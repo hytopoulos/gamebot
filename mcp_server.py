@@ -114,10 +114,13 @@ def create_mcp_server():
     
     return server
 
+# Create the server instance
+server = create_mcp_server()
+
+# Expose the ASGI app for Uvicorn/Heroku
+app = server.app
+
 if __name__ == "__main__":
-    # Create and run the server
-    server = create_mcp_server()
-    
     # Get host and port from environment or use defaults
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", 8000))
