@@ -93,7 +93,6 @@ def create_mcp_server():
         },
         handler=search_tool_handler
     )
-    server.register_tool(search_tool)
     
     # Create and register fetch tool
     fetch_tool = Tool(
@@ -108,7 +107,21 @@ def create_mcp_server():
         },
         handler=fetch_tool
     )
-    server.register_tool(fetch_tool)
+    
+    # Add tools to the server
+    # In the MCP SDK, tools are passed as a list to the Server constructor
+    # So we'll create a list of all tools and pass them to the Server
+    tools = [
+        search_tool,
+        fetch_tool
+    ]
+    
+    # Recreate the server with the tools
+    server = Server(
+        name="GameBot MCP Server",
+        version="1.0.0",
+        tools=tools
+    )
     
     return server
 
