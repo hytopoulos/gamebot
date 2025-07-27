@@ -8,9 +8,7 @@ import httpx
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
-from mcp.server import Server
-from mcp.types import Tool, CallToolResult, ClientRequest, ClientNotification
-from mcp.server.fastmcp.server import Context
+from mcp.server.fastmcp import FastMCP
 from openai import OpenAI
 
 # Load environment variables
@@ -21,9 +19,25 @@ load_dotenv(dotenv_path=env_path, override=True)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 VECTOR_STORE_ID = os.getenv("VECTOR_STORE_ID")
 
-# Define tool handlers first
-async def search_handler(context: Context, query: str, limit: int = 5) -> CallToolResult:
-    """Search for information using the OpenAI Vector Store."""
+# Create FastMCP instance
+mcp = FastMCP(
+    name="GameBot MCP Server",
+    description="MCP server for GameBot with search and fetch capabilities"
+)
+
+# Define tool handlers with @mcp.tool() decorator
+@mcp.tool()
+async def search(query: str, limit: int = 5) -> str:
+    """
+    Search for information using the OpenAI Vector Store.
+    
+    Args:
+        query: The search query string
+        limit: Maximum number of results to return (default: 5)
+        
+    Returns:
+        Formatted search results as a string
+    """
     try:
         # Search the vector store
         search_result = client.beta.vector_stores.search(
@@ -33,71 +47,46 @@ async def search_handler(context: Context, query: str, limit: int = 5) -> CallTo
         )
         
         if not search_result.data:
-            return CallToolResult(content="No results found.")
+            return "No results found."
             
         # Format the results
         results = []
         for i, result in enumerate(search_result.data, 1):
             results.append(f"{i}. {result.metadata.get('title', 'Untitled')}\n{result.metadata.get('text', '')}")
             
-        return CallToolResult(content="\n\n".join(results))
+        return "\n\n".join(results)
         
     except Exception as e:
         error_msg = f"An error occurred while searching: {str(e)}"
         print(error_msg)
-        return CallToolResult(error=error_msg)
+        raise Exception(error_msg)
 
-async def fetch_handler(context: Context, url: str) -> CallToolResult:
-    """Fetch content from a URL."""
+@mcp.tool()
+async def fetch(url: str) -> str:
+    """
+    Fetch content from a URL.
+    
+    Args:
+        url: The URL to fetch content from
+        
+    Returns:
+        The content of the URL as a string
+    """
     try:
         async with httpx.AsyncClient() as client:
             response = await client.get(url)
             response.raise_for_status()
-            return CallToolResult(content=response.text)
+            return response.text
     except Exception as e:
-        return CallToolResult(content=f"Error fetching URL: {str(e)}", isError=True)
+        error_msg = f"Error fetching URL: {str(e)}"
+        print(error_msg)
+        raise Exception(error_msg)
 
 def create_mcp_server():
     """Create and configure the MCP server."""
-    # Define tool instances first
-    search_tool = Tool(
-        name="search",
-        description="Search for documents in the vector store",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "The search query"},
-                "limit": {"type": "number", "description": "Maximum number of results to return", "default": 5}
-            },
-            "required": ["query"]
-        },
-        handler=search_handler
-    )
-    
-    fetch_tool = Tool(
-        name="fetch",
-        description="Fetch content from a URL",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "url": {"type": "string", "description": "The URL to fetch content from"}
-            },
-            "required": ["url"]
-        },
-        handler=fetch_handler
-    )
-    
-    # Create server
-    server = Server(
-        name="GameBot MCP Server",
-        version="1.0.0"
-    )
-    
-    # Register tools
-    server.register_tool(search_tool)
-    server.register_tool(fetch_tool)
-    
-    return server
+    # The tools are already registered via the @mcp.tool() decorator
+    # Just return the mcp instance which is our server
+    return mcp
 
 # Create the server instance
 server = create_mcp_server()
