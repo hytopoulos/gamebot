@@ -91,8 +91,8 @@ def create_mcp_server():
 # Create the server instance
 server = create_mcp_server()
 
-# Get the FastAPI app from the server
-app = server.fastapi_app
+# The FastMCP instance is the ASGI app
+app = server
 
 if __name__ == "__main__":
     # Get host and port from environment or use defaults
@@ -101,4 +101,4 @@ if __name__ == "__main__":
     
     print(f"Starting MCP server on {host}:{port}")
     import uvicorn
-    uvicorn.run("mcp_server:app", host=host, port=port, log_level="info")
+    uvicorn.run(app, host=host, port=port, log_level="info")
