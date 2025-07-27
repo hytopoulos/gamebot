@@ -106,7 +106,7 @@ def create_mcp_server():
             },
             "required": ["url"]
         },
-        handler=fetch_tool_handler
+        handler=fetch_tool
     )
     
     # Add tools to the server
