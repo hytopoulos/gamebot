@@ -72,21 +72,22 @@ jobs:
       env:
         HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
       run: |
-        # Set Heroku app name
-        HEROKU_APP_NAME=gamebot-1753568107
-        
         # Set environment variables on Heroku
-        heroku config:set --app $HEROKU_APP_NAME \
+        heroku config:set --app ${{ secrets.HEROKU_APP_NAME }} \
           OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }} \
           VECTOR_STORE_ID=${{ secrets.VECTOR_STORE_ID }} \
           HOST=0.0.0.0 \
           PORT=$PORT \
           ALLOWED_ORIGINS="*"
         
-        # Deploy using buildpacks
-        git remote add heroku https://heroku:$HEROKU_API_KEY@git.heroku.com/$HEROKU_APP_NAME.git
-        git push -f heroku HEAD:refs/heads/main
+        # Add Heroku remote
+        git remote add heroku https://heroku:$HEROKU_API_KEY@git.heroku.com/${{ secrets.HEROKU_APP_NAME }}.git || true
+        
+        # Deploy using container registry (recommended for Python apps)
+        heroku container:login
+        heroku container:push web --app ${{ secrets.HEROKU_APP_NAME }}
+        heroku container:release web --app ${{ secrets.HEROKU_APP_NAME }}
         
         # Verify deployment
-        heroku ps:scale web=1 --app $HEROKU_APP_NAME
-        heroku logs --app $HEROKU_APP_NAME --tail
+        heroku ps:scale web=1 --app ${{ secrets.HEROKU_APP_NAME }}
+        heroku logs --app ${{ secrets.HEROKU_APP_NAME }} --tail
