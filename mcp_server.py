@@ -74,7 +74,14 @@ async def fetch_tool(params: Dict[str, Any], context: Context) -> CallToolResult
 
 def create_mcp_server():
     """Create and configure the MCP server."""
-    # Create tools
+    # Create and configure server first
+    server = Server(
+        name="GameBot MCP Server",
+        version="1.0.0",
+        description="MCP server for GameBot with search and fetch capabilities"
+    )
+    
+    # Create and register search tool
     search_tool = Tool(
         name="search",
         description="Search for information in the knowledge base",
@@ -87,7 +94,9 @@ def create_mcp_server():
         },
         handler=search_tool_handler
     )
+    server.add_tool(search_tool)
     
+    # Create and register fetch tool
     fetch_tool = Tool(
         name="fetch",
         description="Fetch content from a URL",
@@ -100,16 +109,6 @@ def create_mcp_server():
         },
         handler=fetch_tool
     )
-    
-    # Create and configure server
-    server = Server(
-        name="GameBot MCP Server",
-        version="1.0.0",
-        description="MCP server for GameBot with search and fetch capabilities"
-    )
-    
-    # Register tools
-    server.add_tool(search_tool)
     server.add_tool(fetch_tool)
     
     return server
