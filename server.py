@@ -19,7 +19,7 @@ from fastapi import FastAPI, Request, Response, status, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastmcp import FastMCP
-from fastmcp.tools import Tool, ToolResult
+from fastmcp.tools import Tool  # ToolResult is not available in this version
 from openai import AsyncOpenAI
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
