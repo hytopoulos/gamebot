@@ -94,13 +94,15 @@ jobs:
         git push -f heroku HEAD:refs/heads/deploy-branch
         
         # Promote the deployment branch to main on Heroku
-        heroku git:remote -a ${{ secrets.HEROKU_APP_NAME }}
-        heroku maintenance:on
-        heroku ps:scale web=0
-        heroku git:remote -a ${{ secrets.HEROKU_APP_NAME }}
-        git push -f heroku HEAD:main
-        heroku ps:scale web=1
-        heroku maintenance:off
+        heroku maintenance:on --app ${{ secrets.HEROKU_APP_NAME }}
+        heroku ps:scale web=0 --app ${{ secrets.HEROKU_APP_NAME }}
+        
+        # Push directly to Heroku's main branch using the API key
+        git push -f https://heroku:$HEROKU_API_KEY@git.heroku.com/${{ secrets.HEROKU_APP_NAME }}.git HEAD:main
+        
+        # Scale back up and turn off maintenance mode
+        heroku ps:scale web=1 --app ${{ secrets.HEROKU_APP_NAME }}
+        heroku maintenance:off --app ${{ secrets.HEROKU_APP_NAME }}
         
         # Verify deployment
         heroku ps:scale web=1 --app ${{ secrets.HEROKU_APP_NAME }}
