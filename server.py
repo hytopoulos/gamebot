@@ -319,9 +319,25 @@ class FastMCPASGIWrapper:
             elif path == '/fetch' and method == 'POST':
                 tool_name = 'fetch'
                 tool_args = request_data
-            elif path in ['/sse', '/'] and method == 'POST':
+            elif path in ['/sse', '/'] and method in ['GET', 'POST']:
                 # Handle MCP protocol initialization for both /sse and root paths
-                if request_data.get('method') == 'initialize':
+                # For GET requests, return a simple success response
+                if method == 'GET':
+                    response = {
+                        'status': 'ok',
+                        'server': 'GameBot MCP Server',
+                        'version': '1.0.0',
+                        'endpoints': {
+                            'mcp_initialize': {'method': 'POST', 'path': '/'},
+                            'search': {'method': 'POST', 'path': '/search'},
+                            'fetch': {'method': 'POST', 'path': '/fetch'},
+                            'health': {'method': 'GET', 'path': '/health'}
+                        }
+                    }
+                    await self._send_json_response(send, response, 200)
+                    return
+                # For POST requests, handle MCP initialization
+                elif request_data.get('method') == 'initialize':
                     response = {
                         'jsonrpc': '2.0',
                         'id': request_data.get('id', 1),
