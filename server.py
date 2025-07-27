@@ -312,6 +312,14 @@ class FastMCPASGIWrapper:
         response = {"error": "Not Found"}
         status_code = 404
         
+        # Get the tool manager and tools
+        tool_manager = self.mcp_server._tool_manager
+        tools = {}
+        try:
+            tools = await tool_manager.get_tools()
+        except Exception as e:
+            logger.error(f"Error getting tools: {str(e)}")
+        
         try:
             # Route to the appropriate tool based on path and method
             if path == '/health' and method == 'GET':
@@ -319,24 +327,15 @@ class FastMCPASGIWrapper:
                 tool_args = {}
             elif path == '/tools' and method == 'GET':
                 # Return the list of available tools
-                try:
-                    # Get the tool manager from the FastMCP instance
-                    tool_manager = self.mcp_server._tool_manager
-                    tools = await tool_manager.get_tools()
-                    
-                    tools_list = []
-                    for tool_name, tool_info in tools.items():
-                        tools_list.append({
-                            'name': tool_name,
-                            'description': tool_info.get('description', ''),
-                            'parameters': tool_info.get('parameters', {})
-                        })
-                    response = {'tools': tools_list}
-                    status_code = 200
-                except Exception as e:
-                    logger.error(f"Error getting tools: {str(e)}")
-                    response = {'error': 'Failed to retrieve tools'}
-                    status_code = 500
+                tools_list = []
+                for tool_name, tool_info in tools.items():
+                    tools_list.append({
+                        'name': tool_name,
+                        'description': tool_info.get('description', ''),
+                        'parameters': tool_info.get('parameters', {})
+                    })
+                response = {'tools': tools_list}
+                status_code = 200
                 
                 await self._send_json_response(send, response, status_code)
                 return
