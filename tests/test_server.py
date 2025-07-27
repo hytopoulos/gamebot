@@ -58,6 +58,36 @@ async def test_health_check(test_client):
     assert data["status"] == "ok"
     # Remove the vector_store check as it might not be in the response
 
+# Test tools endpoint
+async def test_tools_endpoint(test_client):
+    """Test the tools endpoint returns MCP-compliant response."""
+    # Make request to tools endpoint
+    response = test_client.get("/tools")
+    
+    # Assertions
+    assert response.status_code == 200
+    data = response.json()
+    
+    # Check JSON-RPC 2.0 structure
+    assert data.get("jsonrpc") == "2.0"
+    assert "id" in data
+    assert "result" in data
+    
+    # Check tools list in result
+    result = data["result"]
+    assert "tools" in result
+    assert isinstance(result["tools"], list)
+    
+    # Check each tool has required fields
+    for tool in result["tools"]:
+        assert "name" in tool
+        assert isinstance(tool["name"], str)
+        assert "inputSchema" in tool
+        assert isinstance(tool["inputSchema"], dict)
+        assert tool["inputSchema"].get("type") == "object"
+        assert "properties" in tool["inputSchema"]
+        assert "required" in tool["inputSchema"]
+
 # Test error handling
 async def test_search_missing_query(test_client):
     """Test search with missing query parameter."""

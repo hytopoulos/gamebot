@@ -72,6 +72,62 @@ def create_server(openai_client):
     # Add security headers middleware
     mcp.add_middleware(SecurityHeadersMiddleware)
     
+    # Register tools with proper MCP tool decorators
+    @mcp.tool()
+    async def search(query: str) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Search for documents using OpenAI Vector Store search.
+        
+        Args:
+            query: Search query string
+            
+        Returns:
+            Dictionary with 'results' key containing list of matching documents
+        """
+        if not query or not query.strip():
+            return {"results": []}
+
+        try:
+            response = await openai_client.vector_stores.search(
+                vector_store_id=VECTOR_STORE_ID,
+                query=query,
+                with_content=True,
+                limit=5  # Limit results for testing
+            )
+            
+            results = []
+            if hasattr(response, 'data') and response.data:
+                for i, item in enumerate(response.data):
+                    # Extract file_id, filename, and content
+                    item_id = getattr(item, 'file_id', f"vs_{i}")
+                    item_filename = getattr(item, 'filename', f"Document {i+1}")
+                    
+                    # Extract text content from the content array
+                    content_list = getattr(item, 'content', [])
+                    text_content = ""
+                    if content_list and len(content_list) > 0:
+                        first_content = content_list[0]
+                        if hasattr(first_content, 'text'):
+                            text_content = first_content.text
+                        elif isinstance(first_content, dict):
+                            text_content = first_content.get('text', '')
+                    
+                    if not text_content:
+                        text_content = f"Content not available for {item_filename}"
+                    
+                    results.append({
+                        "id": item_id,
+                        "title": item_filename,
+                        "text": text_content[:500] + ("..." if len(text_content) > 500 else ""),
+                        "url": f"#file-{item_id}"  # Placeholder URL
+                    })
+            
+            return {"results": results}
+            
+        except Exception as e:
+            logger.error(f"Search error: {str(e)}")
+            return {"error": str(e), "results": []}
+    
     # Health check endpoint as a FastMCP tool
     @mcp.tool()
     async def health_check() -> dict:
@@ -92,83 +148,56 @@ def create_server(openai_client):
         # Convert to a JSON string and back to ensure it's serializable
         # This will raise an exception immediately if there are any serialization issues
         import json
-        json.dumps(result)
-        
-        # Return the result as a plain dictionary
-        return result
 
     @mcp.tool()
-    async def search(query: str) -> Dict[str, List[Dict[str, Any]]]:
+    async def fetch(document_id: str) -> Dict[str, Any]:
         """
-        Search for documents using OpenAI Vector Store search.
-
-        This tool searches through the vector store to find semantically relevant matches.
-        Returns a list of search results with basic information. Use the fetch tool to get
-        complete document content.
-
+        Fetch the full content of a specific document by its ID.
+        
         Args:
-            query: Search query string. Natural language queries work best for semantic search.
-
+            document_id: The ID of the document to fetch
+            
         Returns:
-            Dictionary with 'results' key containing list of matching documents.
-            Each result includes id, title, text snippet, and optional URL.
+            Dictionary containing the document's full content and metadata
         """
-        if not query or not query.strip():
-            return {"results": []}
-
-        # Search the vector store using OpenAI API
-        logger.info(f"Searching {VECTOR_STORE_ID} for query: '{query}'")
-
+        if not document_id:
+            return {"error": "Document ID is required"}
+            
         try:
-            response = await openai_client.vector_stores.search(
+            # First get the file info to get the filename
+            file_info = await openai_client.vector_stores.files.retrieve(
                 vector_store_id=VECTOR_STORE_ID,
-                query=query,
-                with_content=True,
-                limit=100  # Max allowed by API
+                file_id=document_id
             )
-
-            results = []
-            if not hasattr(response, 'data') or not response.data:
-                return {"results": []}
             
-            for i, item in enumerate(response.data):
-                # Extract file_id, filename, and content
-                item_id = getattr(item, 'file_id', f"vs_{i}")
-                item_filename = getattr(item, 'filename', f"Document {i+1}")
-
-                # Extract text content from the content array
-                content_list = getattr(item, 'content', [])
-                text_content = ""
-                if content_list and len(content_list) > 0:
-                    # Get text from the first content item
-                    first_content = content_list[0]
-                    if hasattr(first_content, 'text'):
-                        text_content = first_content.text
-                    elif isinstance(first_content, dict):
-                        text_content = first_content.get('text', '')
-
-                if not text_content:
-                    text_content = "No content available"
-
-                # Create a snippet from content
-                text_snippet = text_content[:200] + "..." if len(
-                    text_content) > 200 else text_content
-
-                result = {
-                    "id": item_id,
-                    "title": item_filename,
-                    "text": text_snippet,
-                    "url": f"https://platform.openai.com/storage/files/{item_id}"
+            # Then get the file content
+            file_content = await openai_client.vector_stores.files.content(
+                vector_store_id=VECTOR_STORE_ID,
+                file_id=document_id
+            )
+            
+            # Extract text from content
+            text_content = ""
+            if hasattr(file_content, 'data') and file_content.data:
+                first_content = file_content.data[0]
+                if hasattr(first_content, 'text'):
+                    text_content = first_content.text
+                elif isinstance(first_content, dict):
+                    text_content = first_content.get('text', '')
+            
+            return {
+                "id": document_id,
+                "title": getattr(file_info, 'filename', f"Document {document_id}"),
+                "text": text_content,
+                "metadata": {
+                    "size": getattr(file_info, 'bytes', 0),
+                    "created_at": getattr(file_info, 'created_at', None),
+                    "status": getattr(file_info, 'status', 'unknown')
                 }
-
-                results.append(result)
-
+            }
         except Exception as e:
-            logger.error(f"Error searching vector store: {str(e)}")
-            return {"results": []}
-            
-        logger.info(f"Vector store search returned {len(results)} results")
-        return {"results": results}
+            logger.error(f"Error fetching document: {str(e)}")
+            return {"error": str(e)}
 
     @mcp.tool()
     async def fetch(id: str) -> Dict[str, Any]:
@@ -326,63 +355,65 @@ class FastMCPASGIWrapper:
                 tool_name = 'health_check'
                 tool_args = {}
             elif path == '/tools' and method == 'GET':
-                # Return the list of available tools in MCP format
-                tools_list = []
-                for tool_name, tool in tools.items():
-                    try:
-                        tool_info = {
-                            'name': tool_name,
-                            'inputSchema': {
-                                'type': 'object',
-                                'properties': {},
-                                'required': []
-                            }
-                        }
-                        
-                        # Handle different tool types and extract information
-                        if hasattr(tool, 'function') and hasattr(tool.function, 'name'):
-                            # This is a FunctionTool object
-                            func = tool.function
-                            tool_info.update({
-                                'name': getattr(func, 'name', tool_name),
-                                'description': getattr(func, 'description', ''),
-                                'title': getattr(func, 'name', tool_name).replace('_', ' ').title()
-                            })
+                # Get the list of registered tools from FastMCP
+                try:
+                    tools_list = []
+                    for tool_name, tool in mcp._tool_registry._tools.items():
+                        try:
+                            # Get the tool's JSON schema
+                            tool_schema = tool.fn_metadata.arg_model.model_json_schema()
                             
-                            # Convert parameters to inputSchema if available
-                            if hasattr(func, 'parameters'):
-                                params = getattr(func, 'parameters', {})
-                                if isinstance(params, dict):
-                                    tool_info['inputSchema'] = {
-                                        'type': 'object',
-                                        'properties': params.get('properties', {}),
-                                        'required': params.get('required', [])
-                                    }
-                        
-                        # Add to tools list with proper MCP structure
-                        tools_list.append(tool_info)
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing tool {tool_name}: {str(e)}")
-                        tools_list.append({
-                            'name': tool_name,
-                            'description': f'Error: {str(e)}',
-                            'inputSchema': {
-                                'type': 'object',
-                                'properties': {},
-                                'required': []
+                            # Build the tool info according to MCP spec
+                            tool_info = {
+                                'name': tool.name,
+                                'description': tool.description,
+                                'title': tool.title or tool.name.replace('_', ' ').title(),
+                                'inputSchema': {
+                                    'type': 'object',
+                                    'properties': tool_schema.get('properties', {}),
+                                    'required': tool_schema.get('required', [])
+                                }
                             }
-                        })
-                
-                # Format response according to MCP specification
-                response = {
-                    'jsonrpc': '2.0',
-                    'id': request_data.get('id', 1),
-                    'result': {
-                        'tools': tools_list
+                            
+                            # Add annotations if available
+                            if tool.annotations:
+                                tool_info['annotations'] = tool.annotations.dict(exclude_none=True)
+                                
+                            tools_list.append(tool_info)
+                            
+                        except Exception as e:
+                            logger.error(f"Error processing tool {tool_name}: {str(e)}")
+                            tools_list.append({
+                                'name': tool_name,
+                                'description': f'Error: {str(e)}',
+                                'inputSchema': {
+                                    'type': 'object',
+                                    'properties': {},
+                                    'required': []
+                                }
+                            })
+                    
+                    # Format response according to MCP specification
+                    response = {
+                        'jsonrpc': '2.0',
+                        'id': request_data.get('id', 1),
+                        'result': {
+                            'tools': tools_list
+                        }
                     }
-                }
-                status_code = 200
+                    status_code = 200
+                    
+                except Exception as e:
+                    logger.error(f"Error getting tools: {str(e)}")
+                    response = {
+                        'jsonrpc': '2.0',
+                        'id': request_data.get('id', 1),
+                        'error': {
+                            'code': -32603,
+                            'message': f'Internal error: {str(e)}'
+                        }
+                    }
+                    status_code = 500
                 await self._send_json_response(send, response, status_code)
                 return
             elif path == '/search' and method == 'POST':
