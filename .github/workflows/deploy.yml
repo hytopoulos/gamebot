@@ -65,11 +65,6 @@ jobs:
         curl https://cli-assets.heroku.com/install-ubuntu.sh | sh
         heroku --version
     
-    - name: Login to Heroku
-      run: |
-        echo "Logging into Heroku..."
-        heroku container:login
-    
     - name: Deploy to Heroku
       env:
         HEROKU_API_KEY: ${{ secrets.HEROKU_API_KEY }}
@@ -82,11 +77,9 @@ jobs:
           PORT=$PORT \
           ALLOWED_ORIGINS="*"
         
-        # Add Heroku remote
+        # Deploy using git push to Heroku
         git remote add heroku https://heroku:$HEROKU_API_KEY@git.heroku.com/${{ secrets.HEROKU_APP_NAME }}.git || true
-        
-        # Deploy using Heroku buildpacks (simpler approach)
-        git push https://heroku:$HEROKU_API_KEY@git.heroku.com/${{ secrets.HEROKU_APP_NAME }}.git HEAD:main
+        git push -f heroku HEAD:main
         
         # Verify deployment
         heroku ps:scale web=1 --app ${{ secrets.HEROKU_APP_NAME }}
