@@ -19,6 +19,7 @@ A FastMCP server that integrates with OpenAI's Vector Store for document search 
 - [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/install/)
 - [OpenAI API key](https://platform.openai.com/api-keys)
 - (Optional) Vector Store ID from OpenAI
+- [Heroku CLI](https://devcenter.heroku.com/articles/heroku-cli) (for manual deployment)
 
 ### Local Development
 
@@ -68,7 +69,51 @@ A FastMCP server that integrates with OpenAI's Vector Store for document search 
    curl -X POST http://localhost:8000/health_check -H "Content-Type: application/json" -d '{}'
    ```
 
-## 🐳 Docker Deployment
+## 🚀 Deployment
+
+### GitHub Secrets Setup
+
+1. **Set up required secrets in your GitHub repository**:
+   - Go to your repository on GitHub
+   - Navigate to Settings > Secrets and variables > Actions
+   - Add the following repository secrets:
+     - `HEROKU_API_KEY`: Your Heroku API key
+     - `HEROKU_EMAIL`: Your Heroku account email
+     - `HEROKU_APP_NAME`: Your Heroku app name
+     - `OPENAI_API_KEY`: Your OpenAI API key
+     - `VECTOR_STORE_ID`: Your OpenAI Vector Store ID (if applicable)
+
+### Automated Deployment with GitHub Actions
+
+The repository includes a GitHub Actions workflow that automatically deploys to Heroku on every push to the `main` branch.
+
+1. **Workflow file**: `.github/workflows/deploy.yml`
+   - Installs Python dependencies
+   - Runs tests
+   - Deploys to Heroku using the configured secrets
+
+2. **Manual deployment trigger**:
+   ```bash
+   git push origin main
+   ```
+
+### Local Development
+
+1. **Set up environment variables**
+   ```bash
+   cp .env.example .env
+   # Edit .env with your local configuration
+   ```
+
+2. **Run locally**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   python -m uvicorn server:app --reload
+   ```
+
+### 🐳 Docker Deployment (Optional)
 
 1. **Build and run with Docker Compose**
    ```bash
@@ -77,10 +122,7 @@ A FastMCP server that integrates with OpenAI's Vector Store for document search 
 
 2. **Or build and run manually**
    ```bash
-   # Build the image
    docker build -t gamebot .
-   
-   # Run the container
    docker run -p 8000:8000 --env-file .env gamebot
    ```
 
@@ -169,7 +211,7 @@ Run with coverage report:
 pytest --cov=. --cov-report=html
 ```
 
-## Deployment
+## Advanced Deployment
 
 ### Docker Hub
 
