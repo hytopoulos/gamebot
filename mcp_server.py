@@ -87,12 +87,15 @@ def create_mcp_server():
         handler=fetch_handler
     )
     
-    # Create server with tools
+    # Create server
     server = Server(
         name="GameBot MCP Server",
-        version="1.0.0",
-        tools=[search_tool, fetch_tool]
+        version="1.0.0"
     )
+    
+    # Register tools
+    server.register_tool(search_tool)
+    server.register_tool(fetch_tool)
     
     return server
 
