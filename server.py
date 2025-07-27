@@ -328,12 +328,30 @@ class FastMCPASGIWrapper:
             elif path == '/tools' and method == 'GET':
                 # Return the list of available tools
                 tools_list = []
-                for tool_name, tool_info in tools.items():
-                    tools_list.append({
-                        'name': tool_name,
-                        'description': tool_info.get('description', ''),
-                        'parameters': tool_info.get('parameters', {})
-                    })
+                for tool_name, tool in tools.items():
+                    # Handle both dict-like and object-like tool info
+                    if hasattr(tool, 'function'):
+                        # This is a FunctionTool object
+                        func = tool.function
+                        tools_list.append({
+                            'name': func.name,
+                            'description': func.description or '',
+                            'parameters': func.parameters or {}
+                        })
+                    elif hasattr(tool, 'get'):
+                        # This is a dict-like object
+                        tools_list.append({
+                            'name': tool_name,
+                            'description': tool.get('description', ''),
+                            'parameters': tool.get('parameters', {})
+                        })
+                    else:
+                        # Fallback for other types
+                        tools_list.append({
+                            'name': tool_name,
+                            'description': str(tool),
+                            'parameters': {}
+                        })
                 response = {'tools': tools_list}
                 status_code = 200
                 await self._send_json_response(send, response, status_code)
