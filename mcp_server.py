@@ -80,7 +80,43 @@ def create_mcp_server():
         version="1.0.0"
     )
     
-    # Create and register search tool
+    # First, define all tool handlers
+    async def search_handler(context: Context, query: str, limit: int = 5) -> CallToolResult:
+        """Search for information using the OpenAI Vector Store."""
+        try:
+            # Search the vector store
+            search_result = client.beta.vector_stores.search(
+                vector_store_id=VECTOR_STORE_ID,
+                query=query,
+                limit=limit
+            )
+            
+            if not search_result.data:
+                return CallToolResult(content="No results found.")
+                
+            # Format the results
+            results = []
+            for i, result in enumerate(search_result.data, 1):
+                results.append(f"{i}. {result.metadata.get('title', 'Untitled')}\n{result.metadata.get('text', '')}")
+                
+            return CallToolResult(content="\n\n".join(results))
+            
+        except Exception as e:
+            error_msg = f"An error occurred while searching: {str(e)}"
+            print(error_msg)
+            return CallToolResult(error=error_msg)
+    
+    async def fetch_handler(context: Context, url: str) -> CallToolResult:
+        """Fetch content from a URL."""
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url)
+                response.raise_for_status()
+                return CallToolResult(content=response.text)
+        except Exception as e:
+            return CallToolResult(content=f"Error fetching URL: {str(e)}", isError=True)
+    
+    # Create tool instances
     search_tool = Tool(
         name="search",
         description="Search for documents in the vector store",
@@ -92,10 +128,9 @@ def create_mcp_server():
             },
             "required": ["query"]
         },
-        handler=search_tool_handler
+        handler=search_handler
     )
     
-    # Create and register fetch tool
     fetch_tool = Tool(
         name="fetch",
         description="Fetch content from a URL",
@@ -106,20 +141,14 @@ def create_mcp_server():
             },
             "required": ["url"]
         },
-        handler=fetch_tool
+        handler=fetch_handler
     )
     
-    # Add tools to the server
-    tools = [
-        search_tool,
-        fetch_tool
-    ]
-    
-    # Recreate the server with the tools
+    # Create server with tools
     server = Server(
         name="GameBot MCP Server",
         version="1.0.0",
-        tools=tools
+        tools=[search_tool, fetch_tool]
     )
     
     return server
