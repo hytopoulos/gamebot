@@ -331,20 +331,51 @@ class FastMCPASGIWrapper:
                             'type': 'http.response.start',
                             'status': 200,
                             'headers': [
-                                [b'content-type', b'text/event-stream'],
-                                [b'cache-control', b'no-cache'],
+                                [b'content-type', b'text/event-stream; charset=utf-8'],
+                                [b'cache-control', b'no-cache, no-transform'],
                                 [b'connection', b'keep-alive'],
                                 [b'access-control-allow-origin', b'*'],
                                 [b'access-control-allow-methods', b'GET, POST, OPTIONS'],
                                 [b'access-control-allow-headers', b'Content-Type, Authorization'],
+                                [b'x-accel-buffering', b'no'],  # Disable buffering for nginx
+                                [b'transfer-encoding', b'chunked'],
                             ],
                         })
-                        # Send a keep-alive comment
+                        
+                        # Send initial SSE event with server info
+                        init_event = (
+                            'event: init\n'
+                            'data: {'
+                            '"jsonrpc":"2.0",'
+                            '"id":1,'
+                            '"result":{'
+                            '"capabilities":{"tools":{"allowedTools":["search","fetch"]}},'
+                            '"serverInfo":{"name":"GameBot MCP Server","version":"1.0.0"}'
+                            '}}\n\n'
+                            'event: ready\n'
+                            'data: {}\n\n'
+                            'event: keepalive\n'
+                            'data: {}\n\n'
+                        )
+                        
                         await send({
                             'type': 'http.response.body',
-                            'body': b':ok\n\n',
+                            'body': init_event.encode('utf-8'),
                             'more_body': True
                         })
+                        
+                        # Keep the connection open
+                        while True:
+                            await asyncio.sleep(15)  # Send keepalive every 15 seconds
+                            try:
+                                await send({
+                                    'type': 'http.response.body',
+                                    'body': b'event: keepalive\ndata: {}\n\n',
+                                    'more_body': True
+                                })
+                            except Exception as e:
+                                logger.info(f"Client disconnected: {e}")
+                                break
                         return
                     else:
                         # Regular JSON response for non-SSE requests
