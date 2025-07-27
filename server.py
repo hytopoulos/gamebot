@@ -329,29 +329,52 @@ class FastMCPASGIWrapper:
                 # Return the list of available tools
                 tools_list = []
                 for tool_name, tool in tools.items():
-                    # Handle both dict-like and object-like tool info
-                    if hasattr(tool, 'function'):
-                        # This is a FunctionTool object
-                        func = tool.function
-                        tools_list.append({
-                            'name': func.name,
-                            'description': func.description or '',
-                            'parameters': func.parameters or {}
-                        })
-                    elif hasattr(tool, 'get'):
-                        # This is a dict-like object
+                    try:
+                        # Try to access the tool's function attribute directly
+                        if hasattr(tool, 'function') and hasattr(tool.function, 'name'):
+                            # This is a FunctionTool object
+                            func = tool.function
+                            tool_info = {
+                                'name': getattr(func, 'name', tool_name),
+                                'description': getattr(func, 'description', ''),
+                                'parameters': getattr(func, 'parameters', {})
+                            }
+                        # Handle case where tool is already a dictionary
+                        elif hasattr(tool, 'get'):
+                            tool_info = {
+                                'name': tool_name,
+                                'description': tool.get('description', ''),
+                                'parameters': tool.get('parameters', {})
+                            }
+                        # Handle case where tool has attributes directly
+                        elif hasattr(tool, 'name') or hasattr(tool, 'description'):
+                            tool_info = {
+                                'name': getattr(tool, 'name', tool_name),
+                                'description': getattr(tool, 'description', ''),
+                                'parameters': getattr(tool, 'parameters', {})
+                            }
+                        else:
+                            # Fallback for other types
+                            tool_info = {
+                                'name': tool_name,
+                                'description': str(tool),
+                                'parameters': {}
+                            }
+                        
+                        # Ensure all values are JSON serializable
+                        tool_info = {k: v for k, v in tool_info.items() if v is not None}
+                        if 'parameters' not in tool_info:
+                            tool_info['parameters'] = {}
+                        tools_list.append(tool_info)
+                        
+                    except Exception as e:
+                        logger.error(f"Error processing tool {tool_name}: {str(e)}")
                         tools_list.append({
                             'name': tool_name,
-                            'description': tool.get('description', ''),
-                            'parameters': tool.get('parameters', {})
-                        })
-                    else:
-                        # Fallback for other types
-                        tools_list.append({
-                            'name': tool_name,
-                            'description': str(tool),
+                            'description': f'Error: {str(e)}',
                             'parameters': {}
                         })
+                
                 response = {'tools': tools_list}
                 status_code = 200
                 await self._send_json_response(send, response, status_code)
