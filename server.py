@@ -319,6 +319,39 @@ class FastMCPASGIWrapper:
             elif path == '/fetch' and method == 'POST':
                 tool_name = 'fetch'
                 tool_args = request_data
+            elif path == '/sse' and method == 'POST':
+                # Handle MCP protocol initialization
+                if request_data.get('method') == 'initialize':
+                    response = {
+                        'jsonrpc': '2.0',
+                        'id': request_data.get('id', 1),
+                        'result': {
+                            'capabilities': {
+                                'tools': {
+                                    'allowedTools': ['search', 'fetch']
+                                }
+                            },
+                            'serverInfo': {
+                                'name': 'GameBot MCP Server',
+                                'version': '1.0.0'
+                            }
+                        }
+                    }
+                    await self._send_json_response(send, response, 200)
+                    return
+                else:
+                    response = {
+                        'jsonrpc': '2.0',
+                        'id': request_data.get('id', 1),
+                        'error': {
+                            'code': -32601,
+                            'message': 'Method not found'
+                        }
+                    }
+                    await self._send_json_response(send, response, 200)
+                    return
+                
+                tool_name = None
             else:
                 tool_name = None
             
@@ -428,6 +461,15 @@ class FastMCPASGIWrapper:
             status_code = 500
         
         # Send the response
+        await self._send_json_response(send, response, status_code)
+        
+    async def _send_json_response(self, send, data, status_code=200):
+        """Helper method to send JSON responses"""
+        if not isinstance(data, (str, bytes)):
+            data = json.dumps(data)
+        if isinstance(data, str):
+            data = data.encode('utf-8')
+            
         await send({
             'type': 'http.response.start',
             'status': status_code,
@@ -440,7 +482,7 @@ class FastMCPASGIWrapper:
         })
         await send({
             'type': 'http.response.body',
-            'body': json.dumps(response).encode('utf-8'),
+            'body': data,
         })
 
 # Create the ASGI application
