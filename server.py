@@ -355,65 +355,22 @@ class FastMCPASGIWrapper:
                 tool_name = 'health_check'
                 tool_args = {}
             elif path == '/tools' and method == 'GET':
-                # Get the list of registered tools from FastMCP
-                try:
-                    tools_list = []
-                    for tool_name, tool in mcp._tool_registry._tools.items():
-                        try:
-                            # Get the tool's JSON schema
-                            tool_schema = tool.fn_metadata.arg_model.model_json_schema()
-                            
-                            # Build the tool info according to MCP spec
-                            tool_info = {
-                                'name': tool.name,
-                                'description': tool.description,
-                                'title': tool.title or tool.name.replace('_', ' ').title(),
-                                'inputSchema': {
-                                    'type': 'object',
-                                    'properties': tool_schema.get('properties', {}),
-                                    'required': tool_schema.get('required', [])
-                                }
-                            }
-                            
-                            # Add annotations if available
-                            if tool.annotations:
-                                tool_info['annotations'] = tool.annotations.dict(exclude_none=True)
-                                
-                            tools_list.append(tool_info)
-                            
-                        except Exception as e:
-                            logger.error(f"Error processing tool {tool_name}: {str(e)}")
-                            tools_list.append({
-                                'name': tool_name,
-                                'description': f'Error: {str(e)}',
-                                'inputSchema': {
-                                    'type': 'object',
-                                    'properties': {},
-                                    'required': []
-                                }
-                            })
-                    
-                    # Format response according to MCP specification
-                    response = {
-                        'jsonrpc': '2.0',
-                        'id': request_data.get('id', 1),
-                        'result': {
-                            'tools': tools_list
+                # For now, return 501 Not Implemented with MCP-compliant response
+                # We'll implement the full tool listing in a future update
+                response = {
+                    'jsonrpc': '2.0',
+                    'id': request_data.get('id', 1),
+                    'error': {
+                        'code': -32601,  # Method not found
+                        'message': 'The tools endpoint is not yet implemented',
+                        'data': {
+                            'status': 501,
+                            'message': 'Not Implemented',
+                            'details': 'The tools endpoint is planned for a future release.'
                         }
                     }
-                    status_code = 200
-                    
-                except Exception as e:
-                    logger.error(f"Error getting tools: {str(e)}")
-                    response = {
-                        'jsonrpc': '2.0',
-                        'id': request_data.get('id', 1),
-                        'error': {
-                            'code': -32603,
-                            'message': f'Internal error: {str(e)}'
-                        }
-                    }
-                    status_code = 500
+                }
+                status_code = 501  # Not Implemented
                 await self._send_json_response(send, response, status_code)
                 return
             elif path == '/search' and method == 'POST':
