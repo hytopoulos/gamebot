@@ -78,7 +78,7 @@ def create_mcp_server():
     search_tool = Tool(
         name="search",
         description="Search for information in the knowledge base",
-        parameters={
+        inputSchema={
             "type": "object",
             "properties": {
                 "query": {"type": "string", "description": "The search query"}
@@ -91,7 +91,7 @@ def create_mcp_server():
     fetch_tool = Tool(
         name="fetch",
         description="Fetch content from a URL",
-        parameters={
+        inputSchema={
             "type": "object",
             "properties": {
                 "url": {"type": "string", "description": "The URL to fetch content from"}
