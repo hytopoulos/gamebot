@@ -77,8 +77,7 @@ def create_mcp_server():
     # Create and configure server first
     server = Server(
         name="GameBot MCP Server",
-        version="1.0.0",
-        description="MCP server for GameBot with search and fetch capabilities"
+        version="1.0.0"
     )
     
     # Create and register search tool
