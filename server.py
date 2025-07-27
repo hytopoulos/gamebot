@@ -286,6 +286,44 @@ class FastMCPASGIWrapper:
         else:
             raise NotImplementedError(f"Unsupported scope type: {scope['type']}")
     
+    async def _handle_sse(self, scope, receive, send):
+        """Handle Server-Sent Events connection."""
+        # Send the response headers
+        await send({
+            'type': 'http.response.start',
+            'status': 200,
+            'headers': [
+                [b'content-type', b'text/event-stream'],
+                [b'cache-control', b'no-cache'],
+                [b'connection', b'keep-alive'],
+                [b'access-control-allow-origin', b'*'],
+            ],
+        })
+        
+        try:
+            # Keep the connection open and send a heartbeat
+            while True:
+                # Send a comment as a heartbeat every 30 seconds
+                await send({
+                    'type': 'http.response.body',
+                    'body': b': heartbeat\n\n',
+                    'more_body': True
+                })
+                await asyncio.sleep(30)
+                
+        except asyncio.CancelledError:
+            # Client disconnected
+            pass
+        except Exception as e:
+            logger.error(f"SSE error: {e}")
+        finally:
+            # End the response
+            await send({
+                'type': 'http.response.body',
+                'body': b'',
+                'more_body': False
+            })
+    
     async def handle_http(self, scope, receive, send):
         # Get the request body
         body = b''
@@ -307,6 +345,11 @@ class FastMCPASGIWrapper:
         # Route the request based on path and method
         path = scope['path']
         method = scope['method']
+        
+        # Handle SSE endpoint
+        if path == '/sse' and method == 'GET':
+            await self._handle_sse(scope, receive, send)
+            return
         
         # Default response
         response = {"error": "Not Found"}
