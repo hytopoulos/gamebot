@@ -319,8 +319,8 @@ class FastMCPASGIWrapper:
             elif path == '/fetch' and method == 'POST':
                 tool_name = 'fetch'
                 tool_args = request_data
-            elif path == '/sse' and method == 'POST':
-                # Handle MCP protocol initialization
+            elif path in ['/sse', '/'] and method == 'POST':
+                # Handle MCP protocol initialization for both /sse and root paths
                 if request_data.get('method') == 'initialize':
                     response = {
                         'jsonrpc': '2.0',
