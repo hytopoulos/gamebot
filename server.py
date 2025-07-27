@@ -321,21 +321,46 @@ class FastMCPASGIWrapper:
                 tool_args = request_data
             elif path in ['/sse', '/'] and method in ['GET', 'POST']:
                 # Handle MCP protocol initialization for both /sse and root paths
-                # For GET requests, return a simple success response
+                # For GET requests, handle SSE connection
                 if method == 'GET':
-                    response = {
-                        'status': 'ok',
-                        'server': 'GameBot MCP Server',
-                        'version': '1.0.0',
-                        'endpoints': {
-                            'mcp_initialize': {'method': 'POST', 'path': '/'},
-                            'search': {'method': 'POST', 'path': '/search'},
-                            'fetch': {'method': 'POST', 'path': '/fetch'},
-                            'health': {'method': 'GET', 'path': '/health'}
+                    # Check if this is an SSE request
+                    accept_header = next((v for k, v in scope.get('headers', []) if k == b'accept'), b'').decode().lower()
+                    if 'text/event-stream' in accept_header:
+                        # Send SSE headers
+                        await send({
+                            'type': 'http.response.start',
+                            'status': 200,
+                            'headers': [
+                                [b'content-type', b'text/event-stream'],
+                                [b'cache-control', b'no-cache'],
+                                [b'connection', b'keep-alive'],
+                                [b'access-control-allow-origin', b'*'],
+                                [b'access-control-allow-methods', b'GET, POST, OPTIONS'],
+                                [b'access-control-allow-headers', b'Content-Type, Authorization'],
+                            ],
+                        })
+                        # Send a keep-alive comment
+                        await send({
+                            'type': 'http.response.body',
+                            'body': b':ok\n\n',
+                            'more_body': True
+                        })
+                        return
+                    else:
+                        # Regular JSON response for non-SSE requests
+                        response = {
+                            'status': 'ok',
+                            'server': 'GameBot MCP Server',
+                            'version': '1.0.0',
+                            'endpoints': {
+                                'mcp_initialize': {'method': 'POST', 'path': '/'},
+                                'search': {'method': 'POST', 'path': '/search'},
+                                'fetch': {'method': 'POST', 'path': '/fetch'},
+                                'health': {'method': 'GET', 'path': '/health'}
+                            }
                         }
-                    }
-                    await self._send_json_response(send, response, 200)
-                    return
+                        await self._send_json_response(send, response, 200)
+                        return
                 # For POST requests, handle MCP initialization
                 elif request_data.get('method') == 'initialize':
                     response = {
