@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Type, Union
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -18,6 +18,8 @@ from openai import AsyncOpenAI
 from fastapi import HTTPException, Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError as PydanticValidationError
 from aiohttp import ClientTimeout
 
 
@@ -264,128 +266,182 @@ class FastMCPASGIWrapper:
     async def __call__(self, scope, receive, send):
         if scope['type'] == 'http':
             await self.handle_http(scope, receive, send)
+        elif scope['type'] == 'lifespan':
+            # Handle lifespan events for Starlette's TestClient
+            while True:
+                message = await receive()
+                if message['type'] == 'lifespan.startup':
+                    await send({'type': 'lifespan.startup.complete'})
+                elif message['type'] == 'lifespan.shutdown':
+                    await send({'type': 'lifespan.shutdown.complete'})
+                    return
         else:
             raise NotImplementedError(f"Unsupported scope type: {scope['type']}")
     
     async def handle_http(self, scope, receive, send):
-        if scope['method'] == 'POST' and scope['path'] == '/health_check':
-            # Get the request body
-            body = b''
+        # Get the request body
+        body = b''
+        if scope['method'] in ['POST', 'PUT', 'PATCH']:
             more_body = True
             while more_body:
                 message = await receive()
                 body += message.get('body', b'')
                 more_body = message.get('more_body', False)
-            
-            # Try to find and call the health check tool
-            tool_found = False
-            response = {"error": "Health check tool not found"}
-            status_code = 404
-            
+        
+        # Parse JSON body if present
+        request_data = {}
+        if body:
             try:
-                # Get the tool manager from the FastMCP instance
-                tool_manager = self.mcp_server._tool_manager
-                
-                # Look for the health check tool by name
-                tool_name = 'health_check'
-                
-                # Get all tools from the tool manager (returns a dict of tool_name -> tool)
-                tools = await tool_manager.get_tools()
-                
-                # Find the health check tool by name
-                health_check_tool = tools.get(tool_name)
-                
-                if health_check_tool:
-                    try:
-                        # Call the tool function with the correct signature
-                        tool_result = await tool_manager.call_tool(
-                            tool_name,
-                            {}  # Empty arguments dict for health check
-                        )
-                        
-                        # Handle different types of tool results
-                        if tool_result is not None:
-                            # If the tool returns a TextContent object, use its content
-                            if hasattr(tool_result, 'content'):
-                                response = tool_result.content
-                                # If content is a list, take the first item if it exists
-                                if isinstance(response, list) and len(response) > 0:
-                                    response = response[0]
-                                # If content has a text attribute, use that
-                                if hasattr(response, 'text'):
-                                    response = response.text
-                            else:
-                                # Otherwise, use the result directly
-                                response = tool_result
-                        
-                        # Ensure we have a valid response
-                        if response is None:
-                            response = {"status": "error", "message": "No response from tool"}
-                            status_code = 500
-                        # If response is a string, wrap it in a dict
-                        elif isinstance(response, str):
-                            try:
-                                # Try to parse as JSON first
-                                response = json.loads(response)
-                            except json.JSONDecodeError:
-                                # If not JSON, wrap in a message field
-                                response = {"status": "ok", "message": response}
-                        # If response is a list, wrap it in a result field
-                        elif isinstance(response, list):
-                            response = {"status": "ok", "result": response}
-                        # If response is already a dict, ensure it has a status field
-                        elif isinstance(response, dict):
-                            if "status" not in response:
-                                response["status"] = "ok"
-                        # For any other type, convert to string
-                        else:
-                            response = {"status": "ok", "result": str(response)}
-                        
-                        # Add a timestamp if not already present
-                        if isinstance(response, dict) and "timestamp" not in response:
-                            response["timestamp"] = datetime.utcnow().isoformat()
-                        
-                        status_code = 200
-                        tool_found = True
-                        
-                    except Exception as e:
-                        logger.error(f"Error in health check tool: {str(e)}", exc_info=True)
-                        response = {
-                            "status": "error",
-                            "error": f"Error executing health check: {str(e)}",
-                            "timestamp": datetime.utcnow().isoformat()
-                        }
-                        status_code = 500
-                        tool_found = True
-            except Exception as e:
-                response = {"error": f"Error calling health check: {str(e)}"}
-                status_code = 500
-                tool_found = True
+                request_data = json.loads(body.decode('utf-8'))
+            except json.JSONDecodeError:
+                request_data = {}
+        
+        # Route the request based on path and method
+        path = scope['path']
+        method = scope['method']
+        
+        # Default response
+        response = {"error": "Not Found"}
+        status_code = 404
+        
+        try:
+            # Get the tool manager from the FastMCP instance
+            tool_manager = self.mcp_server._tool_manager
+            tools = await tool_manager.get_tools()
             
-            # Send the response
-            await send({
-                'type': 'http.response.start',
-                'status': status_code,
-                'headers': [
-                    [b'content-type', b'application/json'],
-                ],
-            })
-            await send({
-                'type': 'http.response.body',
-                'body': json.dumps(response).encode('utf-8'),
-            })
-        else:
-            await send({
-                'type': 'http.response.start',
-                'status': 404,
-                'headers': [
-                    [b'content-type', b'text/plain'],
-                ],
-            })
-            await send({
-                'type': 'http.response.body',
-                'body': b'Not Found',
-            })
+            # Route to the appropriate tool based on path and method
+            if path == '/health' and method == 'GET':
+                tool_name = 'health_check'
+                tool_args = {}
+            elif path == '/search' and method == 'POST':
+                tool_name = 'search'
+                tool_args = request_data
+            elif path == '/fetch' and method == 'POST':
+                tool_name = 'fetch'
+                tool_args = request_data
+            else:
+                tool_name = None
+            
+            # If we found a matching tool, call it
+            if tool_name and tool_name in tools:
+                try:
+                    # Call the tool function with the provided arguments
+                    tool_result = await tool_manager.call_tool(tool_name, tool_args)
+                    
+                    # Handle the tool result
+                    if tool_result is not None:
+                        # If the tool returns a TextContent object, use its content
+                        if hasattr(tool_result, 'content'):
+                            response = tool_result.content
+                            # If content is a list, take the first item if it exists
+                            if isinstance(response, list) and len(response) > 0:
+                                response = response[0]
+                            # If content has a text attribute, use that
+                            if hasattr(response, 'text'):
+                                response = response.text
+                        else:
+                            # Otherwise, use the result directly
+                            response = tool_result
+                    
+                    # Ensure we have a valid response
+                    if response is None:
+                        response = {"status": "error", "message": "No response from tool"}
+                        status_code = 500
+                    # If response is a string, wrap it in a dict
+                    elif isinstance(response, str):
+                        try:
+                            # Try to parse as JSON first
+                            response = json.loads(response)
+                        except json.JSONDecodeError:
+                            # If not JSON, wrap in a message field
+                            response = {"status": "ok", "message": response}
+                    # If response is a list, wrap it in a result field
+                    elif isinstance(response, list):
+                        response = {"status": "ok", "result": response}
+                    # If response is already a dict, ensure it has a status field
+                    elif isinstance(response, dict):
+                        if "status" not in response:
+                            response["status"] = "ok"
+                    # For any other type, convert to string
+                    else:
+                        response = {"status": "ok", "result": str(response)}
+                    
+                    # Add a timestamp if not already present
+                    if isinstance(response, dict) and "timestamp" not in response:
+                        response["timestamp"] = datetime.utcnow().isoformat()
+                    
+                    status_code = 200
+                    
+                except Exception as e:
+                    logger.error(f"Error in {tool_name} tool: {str(e)}", exc_info=True)
+                    
+                    # Default error response
+                    response = {
+                        "status": "error",
+                        "error": f"Error executing {tool_name}: {str(e)}",
+                        "timestamp": datetime.utcnow().isoformat()
+                    }
+                    status_code = 500
+                    
+                    # Unwrap the exception to get to the root cause
+                    while hasattr(e, '__cause__') and e.__cause__ is not None:
+                        e = e.__cause__
+                    
+                    # Handle Pydantic ValidationError (422)
+                    if isinstance(e, PydanticValidationError):
+                        status_code = 422  # Unprocessable Entity
+                        response['error'] = "Validation error"
+                        response['details'] = json.loads(e.json())
+                    # Handle FastAPI's HTTPException
+                    elif hasattr(e, 'status_code') and hasattr(e, 'detail'):
+                        status_code = e.status_code
+                        if isinstance(e.detail, (str, dict, list)):
+                            response['error'] = e.detail
+                        else:
+                            response['error'] = str(e.detail)
+                    # Handle FastMCP's ToolError
+                    elif hasattr(e, 'message') and hasattr(e, 'code'):
+                        # Map common error codes to HTTP status codes
+                        error_code = getattr(e, 'code', 500)
+                        if error_code == 400:  # Bad Request
+                            status_code = 400
+                        elif error_code == 401:  # Unauthorized
+                            status_code = 401
+                        elif error_code == 403:  # Forbidden
+                            status_code = 403
+                        elif error_code == 404:  # Not Found
+                            status_code = 404
+                        response['error'] = str(e)
+                    # Handle FastAPI's RequestValidationError (422)
+                    elif hasattr(e, 'errors') and hasattr(e, 'body'):
+                        status_code = 422  # Unprocessable Entity
+                        response['error'] = "Validation error"
+                        response['details'] = e.errors()
+            
+        except Exception as e:
+            logger.error(f"Error handling request: {str(e)}", exc_info=True)
+            response = {
+                "status": "error",
+                "error": f"Internal server error: {str(e)}",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+            status_code = 500
+        
+        # Send the response
+        await send({
+            'type': 'http.response.start',
+            'status': status_code,
+            'headers': [
+                [b'content-type', b'application/json'],
+                [b'access-control-allow-origin', b'*'],
+                [b'access-control-allow-methods', b'GET, POST, OPTIONS'],
+                [b'access-control-allow-headers', b'Content-Type, Authorization'],
+            ],
+        })
+        await send({
+            'type': 'http.response.body',
+            'body': json.dumps(response).encode('utf-8'),
+        })
 
 # Create the ASGI application
 app = FastMCPASGIWrapper(mcp_server)
