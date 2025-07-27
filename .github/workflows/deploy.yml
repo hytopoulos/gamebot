@@ -77,9 +77,16 @@ jobs:
           PORT=$PORT \
           ALLOWED_ORIGINS="*"
         
+        # Fix shallow clone by fetching full history
+        git fetch --unshallow || true
+        
+        # Configure git user for Heroku
+        git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+        git config --global user.name "GitHub Actions"
+        
         # Deploy using git push to Heroku
         git remote add heroku https://heroku:$HEROKU_API_KEY@git.heroku.com/${{ secrets.HEROKU_APP_NAME }}.git || true
-        git push -f heroku HEAD:main
+        git push -f heroku `git subtree split --prefix=./ HEAD`:refs/heads/main
         
         # Verify deployment
         heroku ps:scale web=1 --app ${{ secrets.HEROKU_APP_NAME }}
