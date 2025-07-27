@@ -41,8 +41,10 @@ jobs:
       env:
         OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         VECTOR_STORE_ID: ${{ secrets.VECTOR_STORE_ID }}
+        CI: 'true'  # This will make the test skip integration tests
       run: |
-        python -m pytest -v
+        python -m pip install pytest-asyncio
+        python -m pytest -v tests/ -k "not integration"  # Skip integration tests in CI
 
   deploy:
     needs: test

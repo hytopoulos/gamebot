@@ -3,6 +3,7 @@ Test script for MCP server using OpenAI client
 """
 import os
 import asyncio
+import pytest
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
@@ -16,9 +17,14 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("OPENAI_API_KEY environment variable not set")
 
+@pytest.mark.asyncio
 async def test_mcp_integration():
     """Test MCP server integration with OpenAI client"""
     print(f"Testing MCP server at: {MCP_SERVER_URL}")
+    
+    # Skip this test in CI environment
+    if os.environ.get('CI') == 'true' and MCP_SERVER_URL == "http://localhost:8000":
+        pytest.skip("Skipping integration test in CI environment")
     
     # Initialize the OpenAI client
     client = AsyncOpenAI(api_key=OPENAI_API_KEY)
